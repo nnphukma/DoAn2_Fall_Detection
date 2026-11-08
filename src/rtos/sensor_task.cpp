@@ -1,21 +1,28 @@
 #include "task_manager.h"
 #include "sensor_manager.h"
+
 #include "config.h"
 
 extern SensorManager sensorManager;
 
-void sensorTask(void *parameter) {
-    TickType_t lastWakeTime = xTaskGetTickCount();
-    const TickType_t period = pdMS_TO_TICKS(Config::SENSOR_PERIOD_MS);
-
+void sensorTask(void *parameter)
+{
     Mpu6050Data sample{};
 
-    for (;;) {
-        if (sensorManager.update(sample)) {
-            // Do not block the sampling task if the consumer is late.
-            xQueueSend(getSensorQueue(), &sample, 0);
-        }
+    for (;;)
+    {
+        // Wait until MPU6050 Data Ready interrupt occurs.
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
 
-        vTaskDelayUntil(&lastWakeTime, period);
+        // Read sensor data.
+        if (sensorManager.update(sample))
+        {
+            // Send latest sample to ProcessingTask.
+            xQueueSend(
+                getSensorQueue(),
+                &sample,
+                0
+            );
+        }
     }
 }

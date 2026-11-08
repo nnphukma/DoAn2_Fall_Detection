@@ -1,17 +1,13 @@
-
 #include <Arduino.h>
 
 #include "config.h"
 #include "sensor_manager.h"
 #include "task_manager.h"
 
-// Global SensorManager instance.
-// Used by sensorTask().
 SensorManager sensorManager;
 
 void setup()
 {
-    // Initialize USB Serial
     Serial.begin(Config::SERIAL_BAUDRATE);
     delay(1000);
 
@@ -21,13 +17,13 @@ void setup()
     Serial.println("       ESP32-C3 + MPU6050");
     Serial.println("========================================");
 
-    // Initialize MPU6050
     Serial.println("[INIT] Initializing MPU6050...");
 
     if (!sensorManager.begin())
     {
         Serial.println("[ERROR] MPU6050 initialization failed!");
-        Serial.println("[ERROR] Check I2C connection and sensor address.");
+        Serial.println("[ERROR] Check I2C or gyro calibration.");
+        Serial.println("[INFO] Keep device stationary during startup.");
 
         while (true)
         {
@@ -35,15 +31,14 @@ void setup()
         }
     }
 
-    Serial.println("[OK] MPU6050 initialized successfully!");
-    Serial.println("[OK] I2C Address: 0x68");
+    Serial.println("[OK] MPU6050 initialized.");
+    Serial.println("[OK] Gyroscope calibration completed.");
 
-    // Start FreeRTOS tasks
     Serial.println("[INIT] Starting FreeRTOS tasks...");
 
     if (!startRtosTasks())
     {
-        Serial.println("[ERROR] Failed to create FreeRTOS tasks!");
+        Serial.println("[ERROR] Failed to start FreeRTOS tasks!");
 
         while (true)
         {
@@ -51,7 +46,9 @@ void setup()
         }
     }
 
-    Serial.println("[OK] FreeRTOS tasks started!");
+    Serial.println("[OK] FreeRTOS tasks started.");
+    Serial.println("[OK] MPU6050 Data Ready INT enabled.");
+    Serial.println("[INFO] INT GPIO: 10");
     Serial.println("[INFO] Sampling frequency: 100 Hz");
     Serial.println("[INFO] Waiting for sensor data...");
     Serial.println("----------------------------------------");
@@ -59,7 +56,5 @@ void setup()
 
 void loop()
 {
-    // Sensor acquisition and processing
-    // are handled by FreeRTOS tasks.
     delay(1000);
 }

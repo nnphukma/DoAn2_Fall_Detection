@@ -2,10 +2,15 @@
 
 #include "mpu6050.h"
 
-class SensorManager {
+class SensorManager
+{
 public:
     bool begin();
+
+    bool enableDataReadyInterrupt();
+
     bool update(Mpu6050Data &data);
+
     bool isReady() const;
 
 private:
