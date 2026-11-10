@@ -1,79 +1,69 @@
+
 #include "task_manager.h"
 
 void processingTask(void *parameter)
 {
     Mpu6050Data sample{};
 
-    uint32_t sampleCount = 0;
+    // CSV header
+    Serial.println(
+        "timestamp_ms,"
+        "ax_raw,ay_raw,az_raw,"
+        "gx_raw,gy_raw,gz_raw,"
+        "ax_ema,ay_ema,az_ema,"
+        "gx_ema,gy_ema,gz_ema,"
+        "q0,q1,q2,q3,"
+        "roll_deg,pitch_deg"
+    );
 
     for (;;)
     {
-        if (xQueueReceive(getSensorQueue(), &sample, portMAX_DELAY) == pdTRUE)
+        if (xQueueReceive(
+                getSensorQueue(),
+                &sample,
+                portMAX_DELAY) == pdTRUE)
         {
-            // Print approximately 10 lines per second.
-            if (++sampleCount >= 10)
-            {
-                sampleCount = 0;
+            Serial.printf(
+                "%lu,"
+                "%.3f,%.3f,%.3f,"
+                "%.2f,%.2f,%.2f,"
+                "%.3f,%.3f,%.3f,"
+                "%.2f,%.2f,%.2f,"
+                "%.5f,%.5f,%.5f,%.5f,"
+                "%.2f,%.2f\n",
 
-                Serial.println("\n========== MPU6050 DATA ==========");
+                static_cast<unsigned long>(sample.timestamp_ms),
 
-                Serial.printf(
-                    "RAW ACC [g]  X:%7.3f Y:%7.3f Z:%7.3f | MAG:%6.3f\n",
-                    sample.accelX_raw_g,
-                    sample.accelY_raw_g,
-                    sample.accelZ_raw_g,
-                    sample.accelMagnitude_raw_g
-                );
+                // Raw acceleration
+                sample.accelX_raw_g,
+                sample.accelY_raw_g,
+                sample.accelZ_raw_g,
 
-                Serial.printf(
-                    "RAW GYRO[dps] X:%7.2f Y:%7.2f Z:%7.2f | MAG:%6.2f\n",
-                    sample.gyroX_raw_dps,
-                    sample.gyroY_raw_dps,
-                    sample.gyroZ_raw_dps,
-                    sample.gyroMagnitude_raw_dps
-                );
+                // Raw gyroscope
+                sample.gyroX_raw_dps,
+                sample.gyroY_raw_dps,
+                sample.gyroZ_raw_dps,
 
-                Serial.println("----------------------------------");
+                // EMA acceleration
+                sample.accelX_g,
+                sample.accelY_g,
+                sample.accelZ_g,
 
-                Serial.printf(
-                    "EMA ACC [g]  X:%7.3f Y:%7.3f Z:%7.3f | MAG:%6.3f\n",
-                    sample.accelX_g,
-                    sample.accelY_g,
-                    sample.accelZ_g,
-                    sample.accelMagnitude_g
-                );
+                // EMA gyroscope
+                sample.gyroX_dps,
+                sample.gyroY_dps,
+                sample.gyroZ_dps,
 
-                Serial.printf(
-                    "EMA GYRO[dps] X:%7.2f Y:%7.2f Z:%7.2f | MAG:%6.2f\n",
-                    sample.gyroX_dps,
-                    sample.gyroY_dps,
-                    sample.gyroZ_dps,
-                    sample.gyroMagnitude_dps
-                );
+                // Mahony quaternion
+                sample.q0,
+                sample.q1,
+                sample.q2,
+                sample.q3,
 
-                Serial.println("----------------------------------");
-
-                Serial.printf(
-                    "MAHONY | Roll:%7.2f deg | Pitch:%7.2f deg\n",
-                    sample.roll_deg,
-                    sample.pitch_deg
-                );
-
-                Serial.printf(
-                    "QUATERNION | q0:%7.3f q1:%7.3f q2:%7.3f q3:%7.3f\n",
-                    sample.q0,
-                    sample.q1,
-                    sample.q2,
-                    sample.q3
-                );
-
-                Serial.printf(
-                    "TIMESTAMP: %lu ms\n",
-                    static_cast<unsigned long>(sample.timestamp_ms)
-                );
-
-                Serial.println("==================================");
-            }
+                // Attitude angles
+                sample.roll_deg,
+                sample.pitch_deg
+            );
         }
     }
 }

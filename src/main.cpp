@@ -7,7 +7,12 @@
 SensorManager sensorManager;
 
 void setup()
-{
+{   
+    pinMode(20, OUTPUT);
+    digitalWrite(20, LOW);
+    pinMode(21, OUTPUT);
+    digitalWrite(21, LOW);
+
     Serial.begin(Config::SERIAL_BAUDRATE);
     delay(1000);
 

@@ -7,7 +7,10 @@ function SerialLogRecorder
     app.fileId = -1;
     app.isRecording = false;
     app.startedAt = [];
+    app.lineCount = 0;
     app.displayRows = cell(0, 2);
+    app.pendingDisplayRows = cell(0, 2);
+    app.displayUpdateEvery = 10;
     app.maxDisplayRows = 5000; % Chi gioi han dong hien thi, KHONG gioi han file.
 
     app.fig = uifigure('Name', 'Serial Log Recorder', ...
@@ -46,8 +49,8 @@ function SerialLogRecorder
     app.statusLabel = uilabel(g, 'Text', 'San sang', 'FontWeight', 'bold', ...
         'FontColor', [0.2 0.4 0.2]);
 
-    controls = uigridlayout(layout, [1 5]);
-    controls.ColumnWidth = {150, 150, 100, 120, '1x'};
+    controls = uigridlayout(layout, [1 7]);
+    controls.ColumnWidth = {150, 150, 68, 90, 70, 88, '1x'};
     app.startButton = uibutton(controls, 'push', 'Text', 'Bat dau ghi file', ...
         'FontWeight', 'bold', 'ButtonPushedFcn', @startRecording);
     app.stopButton = uibutton(controls, 'push', 'Text', 'Dung ghi file', ...
@@ -55,10 +58,13 @@ function SerialLogRecorder
     uilabel(controls, 'Text', 'Da ghi:');
     app.elapsedLabel = uilabel(controls, 'Text', '0 giay', ...
         'FontSize', 16, 'FontWeight', 'bold');
+    uilabel(controls, 'Text', 'Da nhan:');
+    app.lineCountLabel = uilabel(controls, 'Text', '0 dong', ...
+        'FontSize', 16, 'FontWeight', 'bold');
     app.pathLabel = uilabel(controls, 'Text', '', 'FontAngle', 'italic');
 
     app.hint = uilabel(layout, 'Text', ...
-        'Log duoc ghi lien tuc vao file. Bang chi giu 5.000 dong gan nhat de giao dien luon muot.', ...
+        'Moi dong UART duoc ghi ngay vao file; bang chi lam moi sau 10 dong va giu 5.000 dong gan nhat.', ...
         'FontColor', [0.35 0.35 0.35]);
 
     app.table = uitable(layout, 'ColumnName', {'Thoi gian', 'Serial log'}, ...
@@ -118,16 +124,11 @@ function SerialLogRecorder
             end
         end
 
-        fullName = fullfile(folder, fileName);
         try
-            app.fileId = fopen(fullName, 'a', 'n', 'UTF-8');
-            if app.fileId == -1
-                error('Khong the mo file de ghi.');
-            end
+            [app.fileId, fullName] = createNewLogFile(folder, fileName);
             app.serial = serialport(port, app.baudField.Value, 'Timeout', 2);
             configureTerminator(app.serial, app.terminatorField.Value);
             flush(app.serial);
-            configureCallback(app.serial, 'terminator', @onSerialLine);
         catch ME
             closeResources();
             uialert(app.fig, ME.message, 'Khong the bat dau');
@@ -136,12 +137,25 @@ function SerialLogRecorder
 
         app.isRecording = true;
         app.startedAt = datetime('now');
+        app.lineCount = 0;
+        app.displayRows = cell(0, 2);
+        app.pendingDisplayRows = cell(0, 2);
+        app.table.Data = app.displayRows;
+        app.elapsedLabel.Text = '0 giay';
+        app.lineCountLabel.Text = '0 dong';
         app.startButton.Enable = 'off';
         app.stopButton.Enable = 'on';
-        app.statusLabel.Text = 'Dang ghi';
+        app.statusLabel.Text = 'Recording';
         app.statusLabel.FontColor = [0 0.45 0.1];
         app.pathLabel.Text = fullName;
         start(app.timer);
+        % Bat callback sau khi trang thai va file da san sang de khong bo sot dong dau.
+        try
+            configureCallback(app.serial, 'terminator', @onSerialLine);
+        catch ME
+            stopRecording();
+            uialert(app.fig, ME.message, 'Khong the bat dau nhan UART');
+        end
     end
 
     function onSerialLine(src, ~)
@@ -150,21 +164,36 @@ function SerialLogRecorder
         end
         try
             line = readline(src);
-            timestamp = datestr(now, 'yyyy-mm-dd HH:MM:SS.FFF');
-            % Moi dong nhan duoc duoc luu ngay lap tuc, khong co gioi han kich thuoc file.
+            timestamp = char(datetime('now', 'Format', 'yyyy-MM-dd HH:mm:ss.SSS'));
+            % Ghi truoc, doc lap voi GUI: moi dong CSV da nhan deu duoc dua vao file.
             fprintf(app.fileId, '[%s] %s\n', timestamp, line);
-            app.displayRows(end+1, :) = {timestamp, char(line)};
-            if size(app.displayRows, 1) > app.maxDisplayRows
-                app.displayRows(1, :) = [];
+            app.lineCount = app.lineCount + 1;
+            app.pendingDisplayRows(end+1, :) = {timestamp, char(line)};
+
+            % Khong cap nhat bang theo tung dong. GUI chi la phan xem, khong
+            % tham gia vao dieu kien ghi file hay dem so mau.
+            if mod(app.lineCount, app.displayUpdateEvery) == 0
+                flushDisplay();
             end
-            app.table.Data = app.displayRows;
-            drawnow limitrate nocallbacks
         catch ME
             if app.isRecording
-                app.statusLabel.Text = ['Loi doc Serial: ' ME.message];
-                app.statusLabel.FontColor = [0.75 0 0];
+                handleRuntimeError(ME);
             end
         end
+    end
+
+    function flushDisplay()
+        if isempty(app.pendingDisplayRows)
+            return
+        end
+        app.displayRows = [app.displayRows; app.pendingDisplayRows]; %#ok<AGROW>
+        app.pendingDisplayRows = cell(0, 2);
+        if size(app.displayRows, 1) > app.maxDisplayRows
+            app.displayRows = app.displayRows(end-app.maxDisplayRows+1:end, :);
+        end
+        app.table.Data = app.displayRows;
+        app.lineCountLabel.Text = sprintf('%d dong', app.lineCount);
+        drawnow limitrate nocallbacks
     end
 
     function updateElapsed(~, ~)
@@ -182,11 +211,53 @@ function SerialLogRecorder
         if isvalid(app.timer) && strcmp(app.timer.Running, 'on')
             stop(app.timer);
         end
+        % Hien thi phan du lieu cuoi cung (< 10 dong) truoc khi dong file.
+        flushDisplay();
         closeResources();
         app.startButton.Enable = 'on';
         app.stopButton.Enable = 'off';
-        app.statusLabel.Text = 'Da dung ghi';
+        app.statusLabel.Text = 'Stopped';
         app.statusLabel.FontColor = [0.25 0.25 0.25];
+    end
+
+    function handleRuntimeError(ME)
+        % Dung an toan de file duoc dong ngay ca khi UART/ghi file loi.
+        app.isRecording = false;
+        if isvalid(app.timer) && strcmp(app.timer.Running, 'on')
+            stop(app.timer);
+        end
+        flushDisplay();
+        closeResources();
+        app.startButton.Enable = 'on';
+        app.stopButton.Enable = 'off';
+        app.statusLabel.Text = ['Loi: ' ME.message];
+        app.statusLabel.FontColor = [0.75 0 0];
+    end
+
+    function [fileId, fullName] = createNewLogFile(folder, requestedName)
+        % Tao ten co timestamp; neu trung, them so thu tu. Khong ghi de file cu.
+        [~, baseName, ext] = fileparts(requestedName);
+        if isempty(ext)
+            ext = '.txt';
+        end
+        stamp = char(datetime('now', 'Format', 'yyyyMMdd_HHmmss_SSS'));
+        sequence = 0;
+        while true
+            if sequence == 0
+                candidate = sprintf('%s_%s%s', baseName, stamp, ext);
+            else
+                candidate = sprintf('%s_%s_%03d%s', baseName, stamp, sequence, ext);
+            end
+            fullName = fullfile(folder, candidate);
+            if ~isfile(fullName)
+                break
+            end
+            sequence = sequence + 1;
+        end
+        fileId = fopen(fullName, 'w', 'n', 'UTF-8');
+        if fileId == -1
+            error('Khong the tao file log moi: %s', fullName);
+        end
     end
 
     function closeResources()
