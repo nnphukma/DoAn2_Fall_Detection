@@ -117,8 +117,8 @@ void FallDetector::resetToNormal()
 {
     resetCandidate();
     _state = _baselineReady
-        ? FallState::NORMAL_MONITOR
-        : FallState::CALIBRATING;
+                 ? FallState::NORMAL_MONITOR
+                 : FallState::CALIBRATING;
 }
 
 void FallDetector::updateStartupBaseline(const Mpu6050Data &sample)
@@ -148,8 +148,7 @@ void FallDetector::updateStartupBaseline(const Mpu6050Data &sample)
     const float norm = sqrtf(
         _calibrationSumX * _calibrationSumX +
         _calibrationSumY * _calibrationSumY +
-        _calibrationSumZ * _calibrationSumZ
-    );
+        _calibrationSumZ * _calibrationSumZ);
 
     if (norm < 0.001f)
     {
@@ -195,8 +194,10 @@ bool FallDetector::calculatePostureAngle(
         _baselineY * uy +
         _baselineZ * uz;
 
-    if (dot > 1.0f) dot = 1.0f;
-    if (dot < -1.0f) dot = -1.0f;
+    if (dot > 1.0f)
+        dot = 1.0f;
+    if (dot < -1.0f)
+        dot = -1.0f;
 
     angle_deg = acosf(dot) * 57.29577951f;
     return true;
@@ -221,8 +222,7 @@ void FallDetector::slowlyUpdateBaseline(
     const float norm = sqrtf(
         _baselineX * _baselineX +
         _baselineY * _baselineY +
-        _baselineZ * _baselineZ
-    );
+        _baselineZ * _baselineZ);
 
     if (norm > 0.001f)
     {
@@ -275,14 +275,12 @@ FallDetectorResult FallDetector::update(
     const bool sosEdge = updateButtonDebounce(
         sosButtonPressed,
         _sosDebounceCount,
-        _sosStable
-    );
+        _sosStable);
 
     const bool cancelEdge = updateButtonDebounce(
         cancelButtonPressed,
         _cancelDebounceCount,
-        _cancelStable
-    );
+        _cancelStable);
 
     float postureAngle = 0.0f;
     const bool postureValid = calculatePostureAngle(sample, postureAngle);
@@ -290,16 +288,22 @@ FallDetectorResult FallDetector::update(
     FallEventType event = FallEventType::NONE;
 
     // Cancel has priority if both buttons are pressed at the same time.
-    if (cancelEdge &&
-        (_state == FallState::EVENT_CANDIDATE ||
-         _state == FallState::POSTURE_VERIFY ||
-         _state == FallState::INACTIVITY_VERIFY ||
-         _state == FallState::ALARM_COUNTDOWN ||
-         _state == FallState::FALL_CONFIRMED ||
-         _state == FallState::MANUAL_SOS))
+    if (cancelEdge)
     {
-        resetToNormal();
-        event = FallEventType::ALERT_CANCELLED;
+        if (_state == FallState::EVENT_CANDIDATE ||
+            _state == FallState::POSTURE_VERIFY ||
+            _state == FallState::INACTIVITY_VERIFY ||
+            _state == FallState::ALARM_COUNTDOWN ||
+            _state == FallState::FALL_CONFIRMED ||
+            _state == FallState::MANUAL_SOS)
+        {
+            resetToNormal();
+            event = FallEventType::ALERT_CANCELLED;
+        }
+        else
+        {
+            event = FallEventType::BTN_CANCEL_PRESSED;
+        }
     }
     else if (sosEdge &&
              _state != FallState::MANUAL_SOS &&
@@ -309,182 +313,186 @@ FallDetectorResult FallDetector::update(
         _state = FallState::MANUAL_SOS;
         event = FallEventType::MANUAL_SOS_TRIGGERED;
     }
+    else if (sosEdge)
+    {
+        event = FallEventType::BTN_SOS_PRESSED;
+    }
     else
     {
         switch (_state)
         {
-            case FallState::CALIBRATING:
+        case FallState::CALIBRATING:
+        {
+            updateStartupBaseline(sample);
+
+            if (_baselineReady)
+                event = FallEventType::BASELINE_READY;
+
+            break;
+        }
+
+        case FallState::NORMAL_MONITOR:
+        {
+            if (postureValid)
+                slowlyUpdateBaseline(sample, postureAngle);
+
+            // Free-fall must persist for at least 80 ms.
+            if (sample.accelMagnitude_raw_g < FREE_FALL_THRESHOLD_G)
             {
-                updateStartupBaseline(sample);
-
-                if (_baselineReady)
-                    event = FallEventType::BASELINE_READY;
-
-                break;
+                if (!_freeFallTiming)
+                {
+                    _freeFallTiming = true;
+                    _freeFallStart_ms = now;
+                }
+            }
+            else if (!_freeFallTiming ||
+                     (now - _freeFallStart_ms) < FREE_FALL_MIN_DURATION_MS)
+            {
+                _freeFallTiming = false;
             }
 
-            case FallState::NORMAL_MONITOR:
+            const bool freeFallDetected =
+                _freeFallTiming &&
+                ((now - _freeFallStart_ms) >= FREE_FALL_MIN_DURATION_MS);
+
+            const bool impactDetected =
+                sample.accelMagnitude_raw_g >= IMPACT_THRESHOLD_G;
+
+            const bool rapidRotationDetected =
+                sample.gyroMagnitude_raw_dps >= ROTATION_THRESHOLD_DPS;
+
+            if (freeFallDetected || impactDetected || rapidRotationDetected)
             {
-                if (postureValid)
-                    slowlyUpdateBaseline(sample, postureAngle);
-
-                // Free-fall must persist for at least 80 ms.
-                if (sample.accelMagnitude_raw_g < FREE_FALL_THRESHOLD_G)
-                {
-                    if (!_freeFallTiming)
-                    {
-                        _freeFallTiming = true;
-                        _freeFallStart_ms = now;
-                    }
-                }
-                else if (!_freeFallTiming ||
-                         (now - _freeFallStart_ms) < FREE_FALL_MIN_DURATION_MS)
-                {
-                    _freeFallTiming = false;
-                }
-
-                const bool freeFallDetected =
-                    _freeFallTiming &&
-                    ((now - _freeFallStart_ms) >= FREE_FALL_MIN_DURATION_MS);
-
-                const bool impactDetected =
-                    sample.accelMagnitude_raw_g >= IMPACT_THRESHOLD_G;
-
-                const bool rapidRotationDetected =
-                    sample.gyroMagnitude_raw_dps >= ROTATION_THRESHOLD_DPS;
-
-                if (freeFallDetected || impactDetected || rapidRotationDetected)
-                {
-                    _state = FallState::EVENT_CANDIDATE;
-                    _stateStart_ms = now;
-                    resetCandidate();
-                    event = FallEventType::CANDIDATE_STARTED;
-                }
-
-                break;
-            }
-
-            case FallState::EVENT_CANDIDATE:
-            {
-                _state = FallState::POSTURE_VERIFY;
+                _state = FallState::EVENT_CANDIDATE;
                 _stateStart_ms = now;
-                _postureTiming = false;
-                break;
+                resetCandidate();
+                event = FallEventType::CANDIDATE_STARTED;
             }
 
-            case FallState::POSTURE_VERIFY:
+            break;
+        }
+
+        case FallState::EVENT_CANDIDATE:
+        {
+            _state = FallState::POSTURE_VERIFY;
+            _stateStart_ms = now;
+            _postureTiming = false;
+            break;
+        }
+
+        case FallState::POSTURE_VERIFY:
+        {
+            if (postureValid &&
+                postureAngle >= POSTURE_ANGLE_THRESHOLD_DEG)
             {
-                if (postureValid &&
-                    postureAngle >= POSTURE_ANGLE_THRESHOLD_DEG)
+                if (!_postureTiming)
                 {
-                    if (!_postureTiming)
-                    {
-                        _postureTiming = true;
-                        _postureStart_ms = now;
-                    }
-
-                    if ((now - _postureStart_ms) >= POSTURE_HOLD_MS)
-                    {
-                        _state = FallState::INACTIVITY_VERIFY;
-                        _stateStart_ms = now;
-                        _stillnessTiming = false;
-                        _uprightTiming = false;
-                        event = FallEventType::POSTURE_CONFIRMED;
-                    }
-                }
-                else
-                {
-                    _postureTiming = false;
+                    _postureTiming = true;
+                    _postureStart_ms = now;
                 }
 
-                if (_state == FallState::POSTURE_VERIFY &&
-                    (now - _stateStart_ms) >= POSTURE_VERIFY_TIMEOUT_MS)
+                if ((now - _postureStart_ms) >= POSTURE_HOLD_MS)
                 {
-                    resetToNormal();
-                    event = FallEventType::CANDIDATE_REJECTED;
-                }
-
-                break;
-            }
-
-            case FallState::INACTIVITY_VERIFY:
-            {
-                const bool postureMaintained =
-                    postureValid && postureAngle >= 55.0f;
-
-                if (postureValid && postureAngle < RECOVERY_ANGLE_DEG)
-                {
-                    if (!_uprightTiming)
-                    {
-                        _uprightTiming = true;
-                        _uprightStart_ms = now;
-                    }
-                }
-                else
-                {
-                    _uprightTiming = false;
-                }
-
-                if (_uprightTiming &&
-                    (now - _uprightStart_ms) >= RECOVERY_HOLD_MS)
-                {
-                    resetToNormal();
-                    event = FallEventType::CANDIDATE_REJECTED;
-                    break;
-                }
-
-                const bool still =
-                    postureMaintained &&
-                    sample.gyroMagnitude_raw_dps < STILL_GYRO_MAX_DPS &&
-                    sample.accelMagnitude_raw_g >= STILL_ACCEL_MIN_G &&
-                    sample.accelMagnitude_raw_g <= STILL_ACCEL_MAX_G;
-
-                if (still)
-                {
-                    if (!_stillnessTiming)
-                    {
-                        _stillnessTiming = true;
-                        _stillnessStart_ms = now;
-                    }
-
-                    if ((now - _stillnessStart_ms) >= STILLNESS_CONFIRM_MS)
-                    {
-                        _state = FallState::ALARM_COUNTDOWN;
-                        _countdownStart_ms = now;
-                        event = FallEventType::COUNTDOWN_STARTED;
-                    }
-                }
-                else
-                {
+                    _state = FallState::INACTIVITY_VERIFY;
+                    _stateStart_ms = now;
                     _stillnessTiming = false;
+                    _uprightTiming = false;
+                    event = FallEventType::POSTURE_CONFIRMED;
                 }
-
-                if (_state == FallState::INACTIVITY_VERIFY &&
-                    (now - _stateStart_ms) >= INACTIVITY_VERIFY_TIMEOUT_MS)
-                {
-                    resetToNormal();
-                    event = FallEventType::CANDIDATE_REJECTED;
-                }
-
-                break;
             }
-
-            case FallState::ALARM_COUNTDOWN:
+            else
             {
-                if ((now - _countdownStart_ms) >= ALARM_COUNTDOWN_MS)
-                {
-                    _state = FallState::FALL_CONFIRMED;
-                    event = FallEventType::FALL_DETECTED;
-                }
+                _postureTiming = false;
+            }
 
+            if (_state == FallState::POSTURE_VERIFY &&
+                (now - _stateStart_ms) >= POSTURE_VERIFY_TIMEOUT_MS)
+            {
+                resetToNormal();
+                event = FallEventType::CANDIDATE_REJECTED;
+            }
+
+            break;
+        }
+
+        case FallState::INACTIVITY_VERIFY:
+        {
+            const bool postureMaintained =
+                postureValid && postureAngle >= 55.0f;
+
+            if (postureValid && postureAngle < RECOVERY_ANGLE_DEG)
+            {
+                if (!_uprightTiming)
+                {
+                    _uprightTiming = true;
+                    _uprightStart_ms = now;
+                }
+            }
+            else
+            {
+                _uprightTiming = false;
+            }
+
+            if (_uprightTiming &&
+                (now - _uprightStart_ms) >= RECOVERY_HOLD_MS)
+            {
+                resetToNormal();
+                event = FallEventType::CANDIDATE_REJECTED;
                 break;
             }
 
-            case FallState::FALL_CONFIRMED:
-            case FallState::MANUAL_SOS:
-            default:
-                // Latched until BTN02 is pressed.
-                break;
+            const bool still =
+                postureMaintained &&
+                sample.gyroMagnitude_raw_dps < STILL_GYRO_MAX_DPS &&
+                sample.accelMagnitude_raw_g >= STILL_ACCEL_MIN_G &&
+                sample.accelMagnitude_raw_g <= STILL_ACCEL_MAX_G;
+
+            if (still)
+            {
+                if (!_stillnessTiming)
+                {
+                    _stillnessTiming = true;
+                    _stillnessStart_ms = now;
+                }
+
+                if ((now - _stillnessStart_ms) >= STILLNESS_CONFIRM_MS)
+                {
+                    _state = FallState::ALARM_COUNTDOWN;
+                    _countdownStart_ms = now;
+                    event = FallEventType::COUNTDOWN_STARTED;
+                }
+            }
+            else
+            {
+                _stillnessTiming = false;
+            }
+
+            if (_state == FallState::INACTIVITY_VERIFY &&
+                (now - _stateStart_ms) >= INACTIVITY_VERIFY_TIMEOUT_MS)
+            {
+                resetToNormal();
+                event = FallEventType::CANDIDATE_REJECTED;
+            }
+
+            break;
+        }
+
+        case FallState::ALARM_COUNTDOWN:
+        {
+            if ((now - _countdownStart_ms) >= ALARM_COUNTDOWN_MS)
+            {
+                _state = FallState::FALL_CONFIRMED;
+                event = FallEventType::FALL_DETECTED;
+            }
+
+            break;
+        }
+
+        case FallState::FALL_CONFIRMED:
+        case FallState::MANUAL_SOS:
+        default:
+            // Latched until BTN02 is pressed.
+            break;
         }
     }
 
@@ -495,15 +503,24 @@ const char *fallStateName(FallState state)
 {
     switch (state)
     {
-        case FallState::CALIBRATING:       return "CALIBRATING";
-        case FallState::NORMAL_MONITOR:    return "NORMAL_MONITOR";
-        case FallState::EVENT_CANDIDATE:   return "EVENT_CANDIDATE";
-        case FallState::POSTURE_VERIFY:    return "POSTURE_VERIFY";
-        case FallState::INACTIVITY_VERIFY: return "INACTIVITY_VERIFY";
-        case FallState::ALARM_COUNTDOWN:   return "ALARM_COUNTDOWN";
-        case FallState::FALL_CONFIRMED:    return "FALL_CONFIRMED";
-        case FallState::MANUAL_SOS:        return "MANUAL_SOS";
-        default:                          return "UNKNOWN";
+    case FallState::CALIBRATING:
+        return "CALIBRATING";
+    case FallState::NORMAL_MONITOR:
+        return "NORMAL_MONITOR";
+    case FallState::EVENT_CANDIDATE:
+        return "EVENT_CANDIDATE";
+    case FallState::POSTURE_VERIFY:
+        return "POSTURE_VERIFY";
+    case FallState::INACTIVITY_VERIFY:
+        return "INACTIVITY_VERIFY";
+    case FallState::ALARM_COUNTDOWN:
+        return "ALARM_COUNTDOWN";
+    case FallState::FALL_CONFIRMED:
+        return "FALL_CONFIRMED";
+    case FallState::MANUAL_SOS:
+        return "MANUAL_SOS";
+    default:
+        return "UNKNOWN";
     }
 }
 
@@ -511,15 +528,29 @@ const char *fallEventName(FallEventType event)
 {
     switch (event)
     {
-        case FallEventType::NONE:                  return "NONE";
-        case FallEventType::BASELINE_READY:        return "BASELINE_READY";
-        case FallEventType::CANDIDATE_STARTED:     return "CANDIDATE_STARTED";
-        case FallEventType::POSTURE_CONFIRMED:     return "POSTURE_CONFIRMED";
-        case FallEventType::COUNTDOWN_STARTED:     return "COUNTDOWN_STARTED";
-        case FallEventType::FALL_DETECTED:         return "FALL_DETECTED";
-        case FallEventType::MANUAL_SOS_TRIGGERED:  return "MANUAL_SOS";
-        case FallEventType::ALERT_CANCELLED:       return "ALERT_CANCELLED";
-        case FallEventType::CANDIDATE_REJECTED:    return "CANDIDATE_REJECTED";
-        default:                                   return "UNKNOWN";
+    case FallEventType::NONE:
+        return "NONE";
+    case FallEventType::BASELINE_READY:
+        return "BASELINE_READY";
+    case FallEventType::CANDIDATE_STARTED:
+        return "CANDIDATE_STARTED";
+    case FallEventType::POSTURE_CONFIRMED:
+        return "POSTURE_CONFIRMED";
+    case FallEventType::COUNTDOWN_STARTED:
+        return "COUNTDOWN_STARTED";
+    case FallEventType::FALL_DETECTED:
+        return "FALL_DETECTED";
+    case FallEventType::MANUAL_SOS_TRIGGERED:
+        return "MANUAL_SOS";
+    case FallEventType::ALERT_CANCELLED:
+        return "ALERT_CANCELLED";
+    case FallEventType::CANDIDATE_REJECTED:
+        return "CANDIDATE_REJECTED";
+    case FallEventType::BTN_SOS_PRESSED:
+        return "BTN_SOS_PRESSED";
+    case FallEventType::BTN_CANCEL_PRESSED:
+        return "BTN_CANCEL_PRESSED";
+    default:
+        return "UNKNOWN";
     }
 }

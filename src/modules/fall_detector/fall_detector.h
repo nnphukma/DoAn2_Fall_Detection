@@ -19,6 +19,10 @@ enum class FallEventType : uint8_t
 {
     NONE,
     BASELINE_READY,
+    
+    BTN_SOS_PRESSED,
+    BTN_CANCEL_PRESSED,
+
     CANDIDATE_STARTED,
     POSTURE_CONFIRMED,
     COUNTDOWN_STARTED,
