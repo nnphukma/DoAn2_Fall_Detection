@@ -8,10 +8,14 @@ SensorManager sensorManager;
 
 void setup()
 {   
-    pinMode(20, OUTPUT);
-    digitalWrite(20, LOW);
-    pinMode(21, OUTPUT);
-    digitalWrite(21, LOW);
+    pinMode(Config::BTN_SOS_PIN, INPUT_PULLUP);
+    pinMode(Config::BTN_CANCEL_PIN, INPUT_PULLUP);
+
+    pinMode(Config::BUZZER_PIN, OUTPUT);
+    digitalWrite(Config::BUZZER_PIN, LOW);
+
+    pinMode(Config::FALL_LED_PIN, OUTPUT);
+    digitalWrite(Config::FALL_LED_PIN, LOW);
 
     Serial.begin(Config::SERIAL_BAUDRATE);
     delay(1000);

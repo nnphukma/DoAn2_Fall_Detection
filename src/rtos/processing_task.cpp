@@ -1,11 +1,66 @@
-
 #include "task_manager.h"
+
+static void printSensorData(const Mpu6050Data &sample)
+{
+    Serial.printf(
+        "%lu,"
+        "%.3f,%.3f,%.3f,"
+        "%.2f,%.2f,%.2f,"
+        "%.3f,%.3f,%.3f,"
+        "%.2f,%.2f,%.2f,"
+        "%.5f,%.5f,%.5f,%.5f,"
+        "%.2f,%.2f\n",
+
+        static_cast<unsigned long>(sample.timestamp_ms),
+
+        sample.accelX_raw_g,
+        sample.accelY_raw_g,
+        sample.accelZ_raw_g,
+
+        sample.gyroX_raw_dps,
+        sample.gyroY_raw_dps,
+        sample.gyroZ_raw_dps,
+
+        sample.accelX_g,
+        sample.accelY_g,
+        sample.accelZ_g,
+
+        sample.gyroX_dps,
+        sample.gyroY_dps,
+        sample.gyroZ_dps,
+
+        sample.q0,
+        sample.q1,
+        sample.q2,
+        sample.q3,
+
+        sample.roll_deg,
+        sample.pitch_deg
+    );
+}
+
+static void printFallEvent(const FallDetectorResult &event)
+{
+    Serial.printf(
+        "\n[EVENT] time=%lu | event=%s | state=%s\n",
+        static_cast<unsigned long>(event.timestamp_ms),
+        fallEventName(event.event),
+        fallStateName(event.state)
+    );
+
+    Serial.printf(
+        "[EVENT] angle=%.2f deg | accel=%.3f g | gyro=%.2f dps\n",
+        event.postureAngle_deg,
+        event.accelMagnitude_raw_g,
+        event.gyroMagnitude_raw_dps
+    );
+}
 
 void processingTask(void *parameter)
 {
     Mpu6050Data sample{};
+    FallDetectorResult event{};
 
-    // CSV header
     Serial.println(
         "timestamp_ms,"
         "ax_raw,ay_raw,az_raw,"
@@ -18,52 +73,22 @@ void processingTask(void *parameter)
 
     for (;;)
     {
+        // Receive sensor data without blocking indefinitely.
         if (xQueueReceive(
                 getSensorQueue(),
                 &sample,
-                portMAX_DELAY) == pdTRUE)
+                pdMS_TO_TICKS(5)) == pdTRUE)
         {
-            Serial.printf(
-                "%lu,"
-                "%.3f,%.3f,%.3f,"
-                "%.2f,%.2f,%.2f,"
-                "%.3f,%.3f,%.3f,"
-                "%.2f,%.2f,%.2f,"
-                "%.5f,%.5f,%.5f,%.5f,"
-                "%.2f,%.2f\n",
+            printSensorData(sample);
+        }
 
-                static_cast<unsigned long>(sample.timestamp_ms),
-
-                // Raw acceleration
-                sample.accelX_raw_g,
-                sample.accelY_raw_g,
-                sample.accelZ_raw_g,
-
-                // Raw gyroscope
-                sample.gyroX_raw_dps,
-                sample.gyroY_raw_dps,
-                sample.gyroZ_raw_dps,
-
-                // EMA acceleration
-                sample.accelX_g,
-                sample.accelY_g,
-                sample.accelZ_g,
-
-                // EMA gyroscope
-                sample.gyroX_dps,
-                sample.gyroY_dps,
-                sample.gyroZ_dps,
-
-                // Mahony quaternion
-                sample.q0,
-                sample.q1,
-                sample.q2,
-                sample.q3,
-
-                // Attitude angles
-                sample.roll_deg,
-                sample.pitch_deg
-            );
+        // Drain all pending fall/button events.
+        while (xQueueReceive(
+                   getFallEventQueue(),
+                   &event,
+                   0) == pdTRUE)
+        {
+            printFallEvent(event);
         }
     }
 }

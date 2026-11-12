@@ -8,6 +8,7 @@ void sensorTask(void *parameter);
 void processingTask(void *parameter);
 
 static QueueHandle_t sensorQueue = nullptr;
+static QueueHandle_t fallEventQueue = nullptr;
 
 static TaskHandle_t sensorTaskHandle = nullptr;
 static TaskHandle_t processingTaskHandle = nullptr;
@@ -26,12 +27,9 @@ void IRAM_ATTR mpu6050DataReadyISR()
     );
 
     if (higherPriorityTaskWoken == pdTRUE)
-    {
         portYIELD_FROM_ISR();
-    }
 }
 
-// Attach ESP32 GPIO interrupt to SensorTask.
 static void attachMpu6050Interrupt()
 {
     attachInterrupt(
@@ -46,6 +44,11 @@ QueueHandle_t getSensorQueue()
     return sensorQueue;
 }
 
+QueueHandle_t getFallEventQueue()
+{
+    return fallEventQueue;
+}
+
 bool startRtosTasks()
 {
     sensorQueue = xQueueCreate(
@@ -56,7 +59,18 @@ bool startRtosTasks()
     if (sensorQueue == nullptr)
         return false;
 
-    // Create ProcessingTask first.
+    fallEventQueue = xQueueCreate(
+        Config::FALL_EVENT_QUEUE_LENGTH,
+        sizeof(FallDetectorResult)
+    );
+
+    if (fallEventQueue == nullptr)
+    {
+        vQueueDelete(sensorQueue);
+        sensorQueue = nullptr;
+        return false;
+    }
+
     BaseType_t processingCreated = xTaskCreate(
         processingTask,
         "ProcessingTask",
@@ -68,13 +82,15 @@ bool startRtosTasks()
 
     if (processingCreated != pdPASS)
     {
+        vQueueDelete(fallEventQueue);
         vQueueDelete(sensorQueue);
+
+        fallEventQueue = nullptr;
         sensorQueue = nullptr;
 
         return false;
     }
 
-    // Create SensorTask.
     BaseType_t sensorCreated = xTaskCreate(
         sensorTask,
         "SensorTask",
@@ -87,18 +103,20 @@ bool startRtosTasks()
     if (sensorCreated != pdPASS)
     {
         vTaskDelete(processingTaskHandle);
+
         processingTaskHandle = nullptr;
 
+        vQueueDelete(fallEventQueue);
         vQueueDelete(sensorQueue);
+
+        fallEventQueue = nullptr;
         sensorQueue = nullptr;
 
         return false;
     }
 
-    // Attach GPIO interrupt after SensorTask exists.
     attachMpu6050Interrupt();
 
-    // Enable MPU6050 Data Ready interrupt.
     if (!sensorManager.enableDataReadyInterrupt())
     {
         detachInterrupt(
@@ -111,7 +129,10 @@ bool startRtosTasks()
         sensorTaskHandle = nullptr;
         processingTaskHandle = nullptr;
 
+        vQueueDelete(fallEventQueue);
         vQueueDelete(sensorQueue);
+
+        fallEventQueue = nullptr;
         sensorQueue = nullptr;
 
         return false;
