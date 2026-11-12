@@ -18,6 +18,7 @@ from protocol import CSV_COLUMNS, Reassembler, decode_packet
 DEVICE_NAME = "FallDetector_ESP32C3"
 SERVICE_UUID = "7c4c1000-8a3f-4c7d-a1f5-9b7f0c000001"
 DATA_UUID = "7c4c1001-8a3f-4c7d-a1f5-9b7f0c000001"
+DEFAULT_OUTPUT_DIRECTORY = Path(r"D:\VDK\ESP32\ESP32C3\ESP32C3_MachPhatHienNga\FallDectiorData")
 
 class BleWorker:
     def __init__(self, events: queue.Queue):
@@ -46,16 +47,25 @@ class BleWorker:
 
     async def connect(self, address):
         self.events.put(("status", "Connecting"))
-        self.client = BleakClient(address, disconnected_callback=lambda _: self.events.put(("lost", None)))
-        await self.client.connect()
-        reassembler = Reassembler()
-        def notification(_, data):
-            try:
-                packet = reassembler.feed(data)
-                if packet: self.events.put(("sample", decode_packet(packet)))
-            except ValueError as exc: self.events.put(("invalid", str(exc)))
-        await self.client.start_notify(DATA_UUID, notification)
-        self.events.put(("status", "Connected"))
+        try:
+            self.client = BleakClient(address, disconnected_callback=lambda _: self.events.put(("lost", None)))
+            await self.client.connect()
+            if self.client.services.get_service(SERVICE_UUID) is None:
+                raise RuntimeError("Thiết bị không có Fall Detector BLE service")
+            reassembler = Reassembler()
+            def notification(_, data):
+                try:
+                    packet = reassembler.feed(data)
+                    if packet: self.events.put(("sample", decode_packet(packet)))
+                except ValueError as exc: self.events.put(("invalid", str(exc)))
+            await self.client.start_notify(DATA_UUID, notification)
+            self.events.put(("status", "Connected"))
+        except Exception as exc:
+            if self.client and self.client.is_connected:
+                await self.client.disconnect()
+            self.client = None
+            self.events.put(("error", str(exc)))
+            self.events.put(("status", "Disconnected"))
 
     async def disconnect(self):
         if self.client:
@@ -72,7 +82,7 @@ class App(ttk.Frame):
         self.connected = self.recording = self.connection_lost = False
         self.csv_file = self.writer = self.start_time = self.last_sequence = None
         self.samples = self.missing = self.invalid = 0; self.rate_window = []
-        self.path = Path.home() / "Documents" / "FallDetectionData"; self.path.mkdir(parents=True, exist_ok=True)
+        self.path = DEFAULT_OUTPUT_DIRECTORY; self.path.mkdir(parents=True, exist_ok=True)
         self.filename = tk.StringVar(value=f"fall_test_{datetime.now():%Y%m%d_%H%M%S}.csv")
         self.status = tk.StringVar(value="Disconnected"); self.stats = {key: tk.StringVar(value="—") for key in ("elapsed", "samples", "rate", "loss", "timestamp", "state", "event")}
         self._build(); self.after(100, self._poll)
@@ -146,6 +156,7 @@ class App(ttk.Frame):
                 elif kind == "sample": self._sample(value)
                 elif kind == "lost": self.connected = False; self.stop_recording(lost=True); self.status.set("Connection lost")
                 elif kind == "invalid": self.invalid += 1
+                elif kind == "error": messagebox.showerror("Không thể kết nối", value)
         except queue.Empty: pass
         if self.recording: self.stats["elapsed"].set(time.strftime("%H:%M:%S", time.gmtime(time.monotonic() - self.start_time)))
         self.after(100, self._poll)

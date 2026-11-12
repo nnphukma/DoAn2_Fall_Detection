@@ -13,3 +13,6 @@ bool startRtosTasks();
 
 QueueHandle_t getSensorQueue();
 QueueHandle_t getFallEventQueue();
+QueueHandle_t getBleLogQueue();
+void queueBleLogSample(const Mpu6050Data &sample, const FallDetectorResult &result);
+uint32_t bleQueueDroppedPackets();

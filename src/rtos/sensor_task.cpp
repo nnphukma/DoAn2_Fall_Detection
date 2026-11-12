@@ -60,5 +60,8 @@ void sensorTask(void *parameter)
             &sample,
             0
         );
+
+        // Copy telemetry only; never wait for BLE from SensorTask.
+        queueBleLogSample(sample, result);
     }
 }

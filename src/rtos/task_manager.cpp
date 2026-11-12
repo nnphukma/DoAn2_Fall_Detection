@@ -1,17 +1,23 @@
 #include "task_manager.h"
 #include "sensor_manager.h"
 #include "config.h"
+#include "ble_data_service.h"
 
 extern SensorManager sensorManager;
 
 void sensorTask(void *parameter);
 void processingTask(void *parameter);
+void bleTask(void *parameter);
 
 static QueueHandle_t sensorQueue = nullptr;
 static QueueHandle_t fallEventQueue = nullptr;
+static QueueHandle_t bleLogQueue = nullptr;
 
 static TaskHandle_t sensorTaskHandle = nullptr;
 static TaskHandle_t processingTaskHandle = nullptr;
+static TaskHandle_t bleTaskHandle = nullptr;
+static uint32_t bleSequence = 0;
+static volatile uint32_t bleQueueDrops = 0;
 
 // MPU6050 Data Ready ISR.
 void IRAM_ATTR mpu6050DataReadyISR()
@@ -49,6 +55,30 @@ QueueHandle_t getFallEventQueue()
     return fallEventQueue;
 }
 
+QueueHandle_t getBleLogQueue()
+{
+    return bleLogQueue;
+}
+
+uint32_t bleQueueDroppedPackets()
+{
+    return bleQueueDrops;
+}
+
+void queueBleLogSample(const Mpu6050Data &sample, const FallDetectorResult &result)
+{
+    BleLogItem item{bleSequence++, sample, result};
+
+    // No client: no queue allocation/copy. The sequence still advances, so a
+    // later connection can identify the acquisition timeline.
+    if (!bleClientSubscribed())
+        return;
+
+    // SensorTask is priority 3. This operation is strictly non-blocking.
+    if (xQueueSend(bleLogQueue, &item, 0) != pdTRUE)
+        ++bleQueueDrops;
+}
+
 bool startRtosTasks()
 {
     sensorQueue = xQueueCreate(
@@ -71,6 +101,16 @@ bool startRtosTasks()
         return false;
     }
 
+    bleLogQueue = xQueueCreate(Config::BLE_QUEUE_LENGTH, sizeof(BleLogItem));
+    if (bleLogQueue == nullptr)
+    {
+        vQueueDelete(fallEventQueue);
+        vQueueDelete(sensorQueue);
+        fallEventQueue = nullptr;
+        sensorQueue = nullptr;
+        return false;
+    }
+
     BaseType_t processingCreated = xTaskCreate(
         processingTask,
         "ProcessingTask",
@@ -82,12 +122,36 @@ bool startRtosTasks()
 
     if (processingCreated != pdPASS)
     {
+        vQueueDelete(bleLogQueue);
         vQueueDelete(fallEventQueue);
         vQueueDelete(sensorQueue);
 
+        bleLogQueue = nullptr;
         fallEventQueue = nullptr;
         sensorQueue = nullptr;
 
+        return false;
+    }
+
+    BaseType_t bleCreated = xTaskCreate(
+        bleTask,
+        "BleTask",
+        4096,
+        nullptr,
+        1,
+        &bleTaskHandle
+    );
+
+    if (bleCreated != pdPASS)
+    {
+        vTaskDelete(processingTaskHandle);
+        processingTaskHandle = nullptr;
+        vQueueDelete(bleLogQueue);
+        vQueueDelete(fallEventQueue);
+        vQueueDelete(sensorQueue);
+        bleLogQueue = nullptr;
+        fallEventQueue = nullptr;
+        sensorQueue = nullptr;
         return false;
     }
 
@@ -102,13 +166,17 @@ bool startRtosTasks()
 
     if (sensorCreated != pdPASS)
     {
+        vTaskDelete(bleTaskHandle);
         vTaskDelete(processingTaskHandle);
 
+        bleTaskHandle = nullptr;
         processingTaskHandle = nullptr;
 
+        vQueueDelete(bleLogQueue);
         vQueueDelete(fallEventQueue);
         vQueueDelete(sensorQueue);
 
+        bleLogQueue = nullptr;
         fallEventQueue = nullptr;
         sensorQueue = nullptr;
 
@@ -124,14 +192,18 @@ bool startRtosTasks()
         );
 
         vTaskDelete(sensorTaskHandle);
+        vTaskDelete(bleTaskHandle);
         vTaskDelete(processingTaskHandle);
 
         sensorTaskHandle = nullptr;
+        bleTaskHandle = nullptr;
         processingTaskHandle = nullptr;
 
+        vQueueDelete(bleLogQueue);
         vQueueDelete(fallEventQueue);
         vQueueDelete(sensorQueue);
 
+        bleLogQueue = nullptr;
         fallEventQueue = nullptr;
         sensorQueue = nullptr;
 

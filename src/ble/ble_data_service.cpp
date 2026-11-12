@@ -7,7 +7,6 @@ namespace
 {
 NimBLECharacteristic *dataCharacteristic = nullptr;
 volatile bool connected = false;
-volatile bool notificationsEnabled = false;
 volatile uint16_t negotiatedMtu = 23;
 volatile uint32_t notificationFailures = 0;
 uint16_t frameId = 0;
@@ -17,23 +16,11 @@ class ServerCallbacks : public NimBLEServerCallbacks
     void onConnect(NimBLEServer *, NimBLEConnInfo &) override { connected = true; }
     void onDisconnect(NimBLEServer *, NimBLEConnInfo &, int) override {
         connected = false;
-        notificationsEnabled = false;
         NimBLEDevice::startAdvertising();
     }
     void onMTUChange(uint16_t mtu, NimBLEConnInfo &) override { negotiatedMtu = mtu; }
 };
 
-// NimBLE-Arduino 2.x/3.x does not expose getSubscribedCount() on a
-// characteristic. Track the Client Characteristic Configuration Descriptor
-// state through the supported subscription callback instead.
-class DataCharacteristicCallbacks : public NimBLECharacteristicCallbacks
-{
-    void onSubscribe(NimBLECharacteristic *, NimBLEConnInfo &, uint16_t subValue) override
-    {
-        // Bit 0 means notifications are enabled (bit 1 is indications).
-        notificationsEnabled = (subValue & 0x0001u) != 0;
-    }
-};
 }
 
 bool beginBleDataService()
@@ -45,7 +32,6 @@ bool beginBleDataService()
     NimBLEService *service = server->createService(BLE_SERVICE_UUID);
     dataCharacteristic = service->createCharacteristic(
         BLE_DATA_CHARACTERISTIC_UUID, NIMBLE_PROPERTY::NOTIFY);
-    dataCharacteristic->setCallbacks(new DataCharacteristicCallbacks());
     NimBLEAdvertising *advertising = NimBLEDevice::getAdvertising();
     advertising->addServiceUUID(BLE_SERVICE_UUID);
     advertising->start();
@@ -54,7 +40,9 @@ bool beginBleDataService()
 
 bool bleClientSubscribed()
 {
-    return connected && notificationsEnabled && dataCharacteristic != nullptr;
+    // NimBLE sends only to subscribed peers internally. Do not suppress the
+    // producer because its subscription callback may race start_notify().
+    return connected && dataCharacteristic != nullptr;
 }
 
 uint32_t bleNotificationFailures() { return notificationFailures; }
