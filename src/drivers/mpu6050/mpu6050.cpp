@@ -18,7 +18,7 @@ namespace
     constexpr uint8_t REG_WHO_AM_I   = 0x75;
 
     // Sensor configuration
-    constexpr float ACCEL_SCALE = 16384.0f;
+    constexpr float ACCEL_SCALE = 8192.0f;
     constexpr float GYRO_SCALE  = 131.0f;
 
     // Gyroscope calibration
@@ -87,7 +87,7 @@ bool MPU6050::begin()
         return false;
 
     // Accelerometer: +/-2g.
-    if (!writeRegister(REG_ACCEL_CONFIG, 0x00))
+    if (!writeRegister(REG_ACCEL_CONFIG, 0x08))
         return false;
 
     // Gyroscope: +/-250 dps.
