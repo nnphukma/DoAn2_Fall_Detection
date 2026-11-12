@@ -45,6 +45,20 @@ struct FallDetectorResult
 
     uint32_t countdownRemaining_ms = 0;
 
+    // Read-only diagnostic values exported for the BLE data logger. They do
+    // not feed back into, or otherwise alter, the frozen FSM.
+    bool postureValid = false;
+    bool freeFallCondition = false;
+    bool freeFallTrigger = false;
+    bool impactTrigger = false;
+    bool rotationTrigger = false;
+    bool postureCondition = false;
+    bool postureConfirmed = false;
+    bool stillnessCondition = false;
+    uint32_t stateElapsed_ms = 0;
+    uint32_t postureElapsed_ms = 0;
+    uint32_t stillnessElapsed_ms = 0;
+
     bool buzzerOn = false;
     bool fallLedOn = false;
 };
@@ -115,6 +129,15 @@ private:
     uint8_t _cancelDebounceCount = 0;
     bool _sosStable = false;
     bool _cancelStable = false;
+
+    bool _diagPostureValid = false;
+    bool _diagFreeFallCondition = false;
+    bool _diagFreeFallTrigger = false;
+    bool _diagImpactTrigger = false;
+    bool _diagRotationTrigger = false;
+    bool _diagPostureCondition = false;
+    bool _diagPostureConfirmed = false;
+    bool _diagStillnessCondition = false;
 };
 
 const char *fallStateName(FallState state);

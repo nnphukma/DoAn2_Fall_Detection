@@ -262,6 +262,20 @@ FallDetectorResult FallDetector::makeResult(
 
     result.fallLedOn = result.buzzerOn;
 
+    result.postureValid = _diagPostureValid;
+    result.freeFallCondition = _diagFreeFallCondition;
+    result.freeFallTrigger = _diagFreeFallTrigger;
+    result.impactTrigger = _diagImpactTrigger;
+    result.rotationTrigger = _diagRotationTrigger;
+    result.postureCondition = _diagPostureCondition;
+    result.postureConfirmed = _diagPostureConfirmed;
+    result.stillnessCondition = _diagStillnessCondition;
+    result.stateElapsed_ms = sample.timestamp_ms - _stateStart_ms;
+    result.postureElapsed_ms = _postureTiming
+        ? sample.timestamp_ms - _postureStart_ms : 0;
+    result.stillnessElapsed_ms = _stillnessTiming
+        ? sample.timestamp_ms - _stillnessStart_ms : 0;
+
     return result;
 }
 
@@ -284,6 +298,16 @@ FallDetectorResult FallDetector::update(
 
     float postureAngle = 0.0f;
     const bool postureValid = calculatePostureAngle(sample, postureAngle);
+
+    _diagPostureValid = postureValid;
+    _diagFreeFallCondition = sample.accelMagnitude_raw_g < FREE_FALL_THRESHOLD_G;
+    _diagFreeFallTrigger = false;
+    _diagImpactTrigger = false;
+    _diagRotationTrigger = false;
+    _diagPostureCondition = postureValid &&
+        postureAngle >= POSTURE_ANGLE_THRESHOLD_DEG;
+    _diagPostureConfirmed = false;
+    _diagStillnessCondition = false;
 
     FallEventType event = FallEventType::NONE;
 
@@ -361,6 +385,10 @@ FallDetectorResult FallDetector::update(
             const bool rapidRotationDetected =
                 sample.gyroMagnitude_raw_dps >= ROTATION_THRESHOLD_DPS;
 
+            _diagFreeFallTrigger = freeFallDetected;
+            _diagImpactTrigger = impactDetected;
+            _diagRotationTrigger = rapidRotationDetected;
+
             if (freeFallDetected || impactDetected || rapidRotationDetected)
             {
                 _state = FallState::EVENT_CANDIDATE;
@@ -398,6 +426,7 @@ FallDetectorResult FallDetector::update(
                     _stillnessTiming = false;
                     _uprightTiming = false;
                     event = FallEventType::POSTURE_CONFIRMED;
+                    _diagPostureConfirmed = true;
                 }
             }
             else
@@ -446,6 +475,8 @@ FallDetectorResult FallDetector::update(
                 sample.gyroMagnitude_raw_dps < STILL_GYRO_MAX_DPS &&
                 sample.accelMagnitude_raw_g >= STILL_ACCEL_MIN_G &&
                 sample.accelMagnitude_raw_g <= STILL_ACCEL_MAX_G;
+
+            _diagStillnessCondition = still;
 
             if (still)
             {

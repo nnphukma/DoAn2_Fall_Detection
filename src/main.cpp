@@ -3,6 +3,7 @@
 #include "config.h"
 #include "sensor_manager.h"
 #include "task_manager.h"
+#include "ble_data_service.h"
 
 SensorManager sensorManager;
 
@@ -42,6 +43,13 @@ void setup()
 
     Serial.println("[OK] MPU6050 initialized.");
     Serial.println("[OK] Gyroscope calibration completed.");
+
+    if (!beginBleDataService())
+    {
+        Serial.println("[ERROR] BLE initialization failed!");
+        while (true) delay(1000);
+    }
+    Serial.println("[OK] BLE advertising as FallDetector_ESP32C3.");
 
     Serial.println("[INIT] Starting FreeRTOS tasks...");
 
