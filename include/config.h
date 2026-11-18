@@ -1,5 +1,4 @@
 #pragma once
-
 #include <Arduino.h>
 
 namespace Config
@@ -14,6 +13,12 @@ namespace Config
 
     // Sensor sampling
     constexpr uint32_t SENSOR_PERIOD_MS = 10; // 100 Hz
+
+    // Battery monitor: BAT+ -> 100k -> GPIO0 -> 100k -> GND
+    constexpr uint8_t BATTERY_ADC_PIN = 0; // ESP32-C3 GPIO0 = ADC1_CH0
+    constexpr uint8_t BATTERY_DIVIDER_RATIO = 2; // R1 = R2 = 100k
+    constexpr uint16_t BATTERY_EMPTY_MV = 3600;
+    constexpr uint16_t BATTERY_FULL_MV = 4200;
 
     // FreeRTOS
     constexpr uint8_t SENSOR_QUEUE_LENGTH = 20;

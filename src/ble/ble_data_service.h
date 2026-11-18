@@ -1,5 +1,4 @@
 #pragma once
-
 #include <Arduino.h>
 #include "mpu6050.h"
 #include "fall_detector.h"

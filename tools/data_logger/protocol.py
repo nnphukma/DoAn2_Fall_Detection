@@ -1,13 +1,13 @@
-"""Decoder for BLE protocol v1. Keep this file in sync with docs/BLE_PROTOCOL.md."""
+"""Decoder for BLE protocol v2 (includes battery voltage and percentage)."""
 from __future__ import annotations
 
 import struct
 from dataclasses import dataclass
 
-VERSION = 1
-PACKET_SIZE = 64
+VERSION = 2
+PACKET_SIZE = 67
 FRAME_MAGIC = 0xA5
-_FORMAT = "<BII12h3hBBBIIIIIH"
+_FORMAT = "<BII12h3hBBBIIIIIHBH"
 assert struct.calcsize(_FORMAT) == PACKET_SIZE
 
 CSV_COLUMNS = [
@@ -19,7 +19,9 @@ CSV_COLUMNS = [
     "rotation_trigger", "posture_condition", "posture_confirmed", "stillness_condition",
     "fsm_state", "fsm_event", "state_elapsed_ms", "posture_elapsed_ms",
     "stillness_elapsed_ms", "countdown_remaining_ms", "device_ble_queue_drops",
+    "battery_voltage_v", "battery_percent",
 ]
+
 
 def crc16_ccitt(data: bytes) -> int:
     crc = 0xFFFF
@@ -29,25 +31,32 @@ def crc16_ccitt(data: bytes) -> int:
             crc = ((crc << 1) ^ 0x1021) & 0xFFFF if crc & 0x8000 else (crc << 1) & 0xFFFF
     return crc
 
+
 def decode_packet(packet: bytes) -> dict:
     if len(packet) != PACKET_SIZE:
         raise ValueError(f"packet length {len(packet)} != {PACKET_SIZE}")
     if packet[0] != VERSION:
         raise ValueError(f"unsupported protocol version {packet[0]}")
-    if crc16_ccitt(packet[:-2]) != struct.unpack_from("<H", packet, 62)[0]:
+    if crc16_ccitt(packet[:-2]) != struct.unpack_from("<H", packet, PACKET_SIZE - 2)[0]:
         raise ValueError("CRC mismatch")
+
     values = struct.unpack(_FORMAT, packet)
     sequence, timestamp = values[1:3]
     sensor = values[3:18]
     flags, state, event = values[18:21]
     timers = values[21:26]
+    battery_mv, battery_percent = values[26:28]
+
     result = dict(zip(CSV_COLUMNS[:2], (sequence, timestamp)))
     result.update(dict(zip(CSV_COLUMNS[2:8], [v / 1000 for v in sensor[:3]] + [v / 10 for v in sensor[3:6]])))
     result.update(dict(zip(CSV_COLUMNS[8:14], [v / 1000 for v in sensor[6:9]] + [v / 10 for v in sensor[9:12]])))
     result.update(dict(zip(CSV_COLUMNS[14:17], (sensor[12] / 1000, sensor[13] / 10, sensor[14] / 100))))
     result.update(dict(zip(CSV_COLUMNS[17:25], [bool(flags & (1 << bit)) for bit in range(8)])))
-    result.update(dict(zip(CSV_COLUMNS[25:], (state, event, *timers))))
+    result.update(dict(zip(CSV_COLUMNS[25:32], (state, event, *timers))))
+    result["battery_voltage_v"] = battery_mv / 1000.0
+    result["battery_percent"] = battery_percent
     return result
+
 
 @dataclass
 class Reassembler:
